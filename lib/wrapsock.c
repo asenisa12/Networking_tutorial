@@ -17,7 +17,6 @@
  */
 
 #include	"unp.h"
-#include	"error.c"
 
 int
 Accept(int fd, struct sockaddr *sa, socklen_t *salenptr)
