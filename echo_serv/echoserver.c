@@ -1,4 +1,6 @@
 #include "../lib/unp.h"
+#include "../lib/signal.c"
+
 
 
 void str_echo2(int sockfd){
@@ -15,6 +17,17 @@ again:
 		perror("read error");
 }
 
+
+void sig_child(int signo){
+
+	pid_t pid;
+	int stat;
+
+	while ( (pid = waitpid(-1, &stat, WNOHANG)) > 0)
+		printf("child %d was terminated\n",pid);
+
+	return;
+}
 
 
 int main(){
@@ -45,6 +58,8 @@ int main(){
 		perror("listen:");
 
 
+	signal(SIGCHLD, sig_child);
+
 	for(;;){
 		client = sizeof(clientaddr);
 		connfd = accept(listenfd,(struct sockaddr*)&clientaddr,&clientaddr);
@@ -52,6 +67,8 @@ int main(){
 		if ((childpid = fork()) ==0){
 
 			close(listenfd);
+
+			
 
 			str_echo2(connfd);
 
@@ -66,3 +83,4 @@ int main(){
 	return 0;
 
 }
+	
