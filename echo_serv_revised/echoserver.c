@@ -1,7 +1,10 @@
 #include "../lib/unp.h"
 #include "../lib/signal.c"
 #include "../lib/error.c"
+#include "../lib/wrapsock.c"
 
+#include <poll.h>
+#define OPEN_MAX 256
 
 
 void str_echo2(int sockfd){
@@ -19,28 +22,23 @@ again:
 }
 
 
-void sig_child(int signo){
-
-	pid_t pid;
-	int stat;
-
-	while ( (pid = waitpid(-1, &stat, WNOHANG)) > 0)
-		printf("child %d was terminated\n",pid);
-
-	return;
-}
 
 
 int main(){
 
-	int listenfd, connfd;
-	pid_t childpid;
-	socklen_t client;
+	int i,maxi,listenfd, connfd,sockfd;
+	socklen_t clien;
+	int nready;
+	ssize_t n;
+	char buf[MAXLINE];
+	struct pollfd client[OPEN_MAX];
 
-	struct sockaddr_in clientaddr, servaddr;
+	struct sockaddr_in cliaddr, servaddr;
 
-	if((listenfd = socket(AF_INET, SOCK_STREAM, 0))<0)
+	if((listenfd = socket(AF_INET, SOCK_STREAM, 0))<0){
 		perror("socket:");
+		return -1;
+	}
 
 
 	bzero(&servaddr,sizeof(servaddr));
@@ -55,37 +53,70 @@ int main(){
 		perror("bind:");
 		return -1;
 	}
-		
-
 
 	if((listen(listenfd,100))<0){
 		perror("listen:");
 		return -1;
 	}
+
+	client[0].fd = listenfd;
+	client[0].events = POLLRDNORM;
+
+	for (i=1;i< OPEN_MAX; i++)
+		client[i].fd=-1;
+	maxi=0;
+
+	for (;;){
+		nready = poll(client, maxi+1, INFTIM);
+
+		if (client[0].revents & POLLRDNORM){
+			clien = sizeof(cliaddr);
+			connfd =Accept(listenfd, (struct sockaddr *)&cliaddr, &clien);
 		
 
 
-	signal(SIGCHLD, sig_child);
+			for (i=1; i < OPEN_MAX; i++)
+				if (client[i].fd < 0){
+					client[i].fd = connfd;
+					break;
+				}
 
-	for(;;){
-		client = sizeof(clientaddr);
-		connfd = accept(listenfd,(struct sockaddr*)&clientaddr,&clientaddr);
+			if (i==OPEN_MAX)
+				err_quit("too many clients");
 
-		if ((childpid = fork()) ==0){
+			client[i].events = POLLRDNORM;
 
-			close(listenfd);
-
-			
-
-			str_echo2(connfd);
-
-			write(connfd,"asen e pich\n",strlen("asen e pich\n"));
-			
-			exit(0);
+			if(i>maxi)
+				maxi = i;
 		}
 
-		close(connfd);
+		for (i=1; i <=maxi; i++){
+			if((sockfd = client[i].fd) < 0)
+				continue;
+
+			if (client[i].revents & (POLLRDNORM | POLLERR)){
+				if ((n = read(sockfd, buf, MAXLINE))<0){
+					if (errno == ECONNRESET){
+						close(sockfd);
+						client[i].fd = -1;
+					} else
+						err_sys("read error");
+
+				}else if (n==0){
+					close(sockfd);
+					client[i].fd = -1;
+				} else
+					write(sockfd, buf, n);
+				if(--nready <=0)
+					break;
+
+			}
+
+		}
+
+
 	}
+
 
 	return 0;
 
